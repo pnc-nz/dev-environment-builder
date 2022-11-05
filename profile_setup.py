@@ -260,7 +260,7 @@ def generate_ssh_keys(ssh_account_path: str, account: str):
 
 
 def create_ssh_config(ssh_path: str) -> str:
-    # 'c:\users\ego\.ssh'
+    # 'c:\users\user\.ssh'
     config_file = 'config'
     config_path = os.path.join(ssh_path, config_file)
     if not os.path.exists(f'{config_path}'):
