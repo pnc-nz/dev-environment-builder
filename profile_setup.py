@@ -144,8 +144,8 @@ def create_vcs_directories(src_path: str) -> list[VersionControl]:
     """
     /src
     ├── /github.com
-    │   ├── /pnc-nz
-    │   ├── /prayer-clan 
+    │   ├── /john-doe
+    │   ├── /jane-doe 
     ├── /gitlab.com
     ├── /dev.azure.com
     ├── /bitbucket.org
@@ -208,8 +208,8 @@ def create_ssh_account_directories(ssh_path: str, vcs: list[VersionControl]):
     """
     /.ssh
     ├── /github.com
-    │   ├── /pnc-nz
-    │   ├── /prayer-clan 
+    │   ├── /jane-doe
+    │   ├── /john-doe
     ├── /gitlab.com
     ├── ....
     """
@@ -239,8 +239,8 @@ def generate_ssh_keys(ssh_account_path: str, account: str):
     -C  comment 
     """
     # ssh_account_path
-    # c:\users\ego\.ssh\github.com\pnc-nz
-    #   ...\pnc_nz_rsa
+    # c:\users\user\.ssh\github.com\john-doe
+    #   ...\john-doe_rsa
     filename = os.path.join(ssh_account_path, f'{account}_rsa')
     type = 'rsa'
     bits = '4096'
@@ -275,8 +275,6 @@ def create_ssh_config(ssh_path: str) -> str:
     return config_path
 
 # TODO: finish writing this
-
-
 def update_ssh_config(ssh_dir):
     """
     # Primary Personal GitHub - john.doe@personal.com
@@ -314,7 +312,6 @@ def run():
     operating_system = set_operating_system()
     home_path = set_user_home_path()
     version_controls = []
-    # get_github_id('prayer-clan')
 
     # src setup; based on vcs
     print('Setup Source directories?')
