@@ -394,7 +394,6 @@ def create_ssh_vcs_directories(ssh_path: Path, vcs: list[VersionControl]) -> Non
     except Exception as e:
         print(f"[ERROR]: Failed to create SSH directory structure: {str(e)}")
 
-
 def generate_ssh_keys(ssh_account_path: Path, account: str) -> None:
     """
     Generates SSH keys for an account using ssh-keygen if they don't already exist.
@@ -414,8 +413,13 @@ def generate_ssh_keys(ssh_account_path: Path, account: str) -> None:
         -f  file    Output filename
     """
     key_filename = f"{account}_rsa"
-    key_path = ssh_account_path / key_filename
-    pub_key_path = ssh_account_path / f"{key_filename}.pub"
+    # Expand user path to handle ~ correctly
+    key_path = Path(os.path.expanduser(str(ssh_account_path / key_filename)))
+    pub_key_path = Path(os.path.expanduser(str(ssh_account_path / f"{key_filename}.pub")))
+    
+    print(f'[DEBUG]: key_filename: [{key_filename}]')
+    print(f'[DEBUG]: key_path: [{key_path}]')
+    print(f'[DEBUG]: pub_key_path: [{pub_key_path}]')
 
     try:
         # Check if both private and public keys already exist
@@ -434,17 +438,21 @@ def generate_ssh_keys(ssh_account_path: Path, account: str) -> None:
             key_path.unlink(missing_ok=True)
             pub_key_path.unlink(missing_ok=True)
 
+        # TODO: fix `-f` not working as intended
         # Generate new SSH key pair
-        command = [
-            "ssh-keygen",
-            "-t", "rsa",
-            "-b", "4096",
-            "-f", str(key_path),
-            "-C", account,
-            "-N", ""  # Empty passphrase
-        ]
+        # command = [
+        #     "ssh-keygen",
+        #     "-t", "rsa",  # type
+        #     "-b", "4096",  # bits
+        #     "-f", f'"{str(key_path)}"',  # file path (expanded)
+        #     "-C", account,  # comment
+        #     "-q",  # quiet
+        #     "-N", ""  # Empty passphrase
+        # ]
+        command = f'ssh-keygen -t rsa -b 4096 -f "{key_path}" -C "{account}" -q -N ""'
+        print(f'[DEBUG]: Generated command: {" ".join(command)}')
 
-        subprocess.run(command, shell=True, check=True)
+        subprocess.run(command, shell=True, check=True, text=True)
 
         # Set correct permissions
         key_path.chmod(0o600)
@@ -538,7 +546,7 @@ def add_ssh_config(vcs_list: list[VersionControl]) -> None:
                     config_block = template_content.format(
                         USERNAME=account.name,
                         VCS=vcs.name,
-                        ORGANISATION=f"{org.name}/",  # Include trailing slash
+                        ORGANISATION=org.name,
                         USE_KEYCHAIN=use_keychain
                     ).strip()
 
