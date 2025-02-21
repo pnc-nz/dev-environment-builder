@@ -13,7 +13,7 @@ SOURCE_DIR_NAME = "src"
 SSH_DIR_NAME = ".ssh"
 TEMPLATES_DIR_NAME = "templates"
 
-# GitConfig 
+# GitConfig
 SSH_TEMPLATES_DIR_NAME = "ssh"
 GC_TEMPLATES_DIR_NAME = "gitconfig"
 GC_TOP_DIR_NAME = "top"
@@ -343,36 +343,57 @@ def create_ssh_directory(home_dir: Path, ssh_dir: str) -> Path:
 
     return ssh_path
 
-def create_ssh_account_directories(ssh_path: Path, vcs: list[VersionControl]) -> None:
+def create_ssh_vcs_directories(ssh_path: Path, vcs: list[VersionControl]) -> None:
     """
-    Creates SSH account directories for each VCS and account
+    Creates SSH account directories for each VCS.
+    Creates SSH keys in each account directory if they do not exist already.
 
+    Directory structure:
     /.ssh
-    ├── /github.com
-    │   ├── /jane-doe
-    │   ├── /john-doe
-    ├── /gitlab.com
-    ├── ....
+    ├── github.com
+    │   ├── john-personal              # Standard account
+    │   │   └── john-personal_rsa
+    │   └── organization-name          # Organization
+    │       └── john-org              # Organizational account
+    │           └── john-org_rsa
+    └── gitlab.com
+        └── ...
 
     Args:
         ssh_path (Path): Path object for the .ssh directory
         vcs (list[VersionControl]): List of version control systems and their accounts
     """
-    for vc in vcs:
-        try:
-            vc_path = ssh_path / vc.name
-
-            for account in vc.accounts:
-                # Create version control -> account directory
-                account_path = vc_path / account.name
+    def _process_organizational_accounts(vcs_path: Path, vcs: VersionControl) -> None:
+        """Creates directories and SSH keys for organizational accounts."""
+        for org in vcs.organisations:
+            for account in org.accounts:
+                account_path = vcs_path / org.name / account.name
                 account_path.mkdir(parents=True, exist_ok=True)
-                print(f"[INFO]: Created directory: [{account_path}]")
-
-                # Generate SSH key for this vcs/account
+                print(f"[INFO]: Created organizational SSH directory: [{account_path}]")
                 generate_ssh_keys(ssh_account_path=account_path, account=account.name)
 
-        except Exception as e:
-            print(f"[ERROR]: Failed to create directory structure for {vc.name}: {str(e)}")
+    def _process_standard_accounts(vcs_path: Path, vcs: VersionControl) -> None:
+        """Creates directories and SSH keys for standard accounts."""
+        for account in vcs.accounts:
+            account_path = vcs_path / account.name
+            account_path.mkdir(parents=True, exist_ok=True)
+            print(f"[INFO]: Created standard SSH directory: [{account_path}]")
+            generate_ssh_keys(ssh_account_path=account_path, account=account.name)
+
+    try:
+        # Process each version control system
+        for vc in vcs:
+            vc_path = ssh_path / vc.name
+
+            # Create organizational account directories and keys
+            _process_organizational_accounts(vc_path, vc)
+
+            # Create standard account directories and keys
+            _process_standard_accounts(vc_path, vc)
+
+    except Exception as e:
+        print(f"[ERROR]: Failed to create SSH directory structure: {str(e)}")
+
 
 def generate_ssh_keys(ssh_account_path: Path, account: str) -> None:
     """
@@ -400,7 +421,7 @@ def generate_ssh_keys(ssh_account_path: Path, account: str) -> None:
         # Check if both private and public keys already exist
         if key_path.exists() and pub_key_path.exists():
             print(f"[INFO]: SSH key pair already exists at [{key_path}]")
-            
+
             # Ensure correct permissions on existing keys
             key_path.chmod(0o600)  # Private key should be readable only by owner
             pub_key_path.chmod(0o644)  # Public key can be readable by others
@@ -474,10 +495,10 @@ def create_ssh_config_file(ssh_dir_path: Path) -> Path:
 def add_ssh_config(vcs_list: list[VersionControl]) -> None:
     """
     Adds SSH config entries for all accounts in the provided VCS list.
+    Handles both organizational and standard accounts.
     
     Args:
         vcs_list (list[VersionControl]): List of version control systems
-        operating_system (str): Operating system for UseKeychain setting
     """
     template_path = Path(TEMPLATES_DIR_NAME) / SSH_TEMPLATES_DIR_NAME / SSH_CONFIG_FILE_NAME
 
@@ -513,17 +534,18 @@ def add_ssh_config(vcs_list: list[VersionControl]) -> None:
                         print(f"[INFO]: SSH config entry already exists for [{account.name}.{vcs.name}]")
                         continue
 
-                    # Format template for this account
+                    # Format template for organizational account
                     config_block = template_content.format(
                         USERNAME=account.name,
                         VCS=vcs.name,
+                        ORGANISATION=f"{org.name}/",  # Include trailing slash
                         USE_KEYCHAIN=use_keychain
                     ).strip()
 
                     # Add new block with proper spacing
                     existing_content = f"{existing_content}\n\n{config_block}" if existing_content else config_block
                     new_entries_added = True
-                    print(f"[INFO]: Added SSH config for [{account.name}.{vcs.name}]")
+                    print(f"[INFO]: Added organizational SSH config for [{account.name}] in [{org.name}] at [{vcs.name}]")
 
             # Handle standard accounts
             for account in vcs.accounts:
@@ -532,17 +554,18 @@ def add_ssh_config(vcs_list: list[VersionControl]) -> None:
                     print(f"[INFO]: SSH config entry already exists for [{account.name}.{vcs.name}]")
                     continue
 
-                # Format template for this account
+                # Format template for standard account
                 config_block = template_content.format(
                     USERNAME=account.name,
                     VCS=vcs.name,
+                    ORGANISATION="",  # Empty string for standard accounts
                     USE_KEYCHAIN=use_keychain
                 ).strip()
 
                 # Add new block with proper spacing
                 existing_content = f"{existing_content}\n\n{config_block}" if existing_content else config_block
                 new_entries_added = True
-                print(f"[INFO]: Added SSH config for [{account.name}.{vcs.name}]")
+                print(f"[INFO]: Added standard SSH config for [{account.name}] at [{vcs.name}]")
 
         # Only write if we've added new entries
         if new_entries_added:
@@ -562,13 +585,13 @@ def add_ssh_config(vcs_list: list[VersionControl]) -> None:
 def check_gitconfig_entry_exists(config_content: str, vcs_name: str, username: str, org_name: str = None) -> bool:
     """
     Checks if a gitconfig entry already exists.
-    
+
     Args:
         config_content (str): Existing gitconfig content
         vcs_name (str): Name of the version control system
         username (str): Account username
         org_name (str, optional): Organization name if applicable
-    
+
     Returns:
         bool: True if entry exists, False otherwise
     """
@@ -577,19 +600,19 @@ def check_gitconfig_entry_exists(config_content: str, vcs_name: str, username: s
         pattern = f"gitdir:~/{SOURCE_DIR_NAME}/{vcs_name}/{org_name}/{username}/"
     else:
         pattern = f"gitdir:~/{SOURCE_DIR_NAME}/{vcs_name}/{username}/"
-    
+
     return pattern in config_content
 
 def check_account_gitconfig_entry_exists(gitconfig_content: str, vcs_name: str, username: str, org_name: str = None) -> bool:
     """
     Checks if an account-level gitconfig entry already exists.
-    
+
     Args:
         gitconfig_content (str): Existing gitconfig content
         vcs_name (str): Name of the version control system
         username (str): Account username
         org_name (str, optional): Organization name if applicable
-    
+
     Returns:
         bool: True if entry exists, False otherwise
     """
@@ -600,7 +623,7 @@ def check_account_gitconfig_entry_exists(gitconfig_content: str, vcs_name: str, 
         pattern = f"name = {username}"
     else:
         pattern = f"name = {username}"
-    
+
     return pattern in gitconfig_content
 
 def create_account_level_gitconfig(account_path: Path, account_name: str, vcs_name: str, org_name: str = None) -> None:
@@ -619,7 +642,7 @@ def create_account_level_gitconfig(account_path: Path, account_name: str, vcs_na
         if gitconfig_path.exists():
             with open(gitconfig_path, 'r') as f:
                 existing_content = f.read()
-            
+
             # Check for duplicate entry
             if check_account_gitconfig_entry_exists(existing_content, vcs_name, account_name, org_name):
                 print(f"[INFO]: Account-level gitconfig entry already exists for [{account_name}] at [{gitconfig_path}]")
@@ -738,11 +761,11 @@ def create_top_level_gitconfig(home_dir: Path, vcs_list: list[VersionControl]) -
 
     except Exception as e:
         print(f"[ERROR]: Failed to create/update top-level gitconfig: {str(e)}")
-        
+
 def setup_git_config(home_dir: Path, src_dir: Path, vcs: list[VersionControl]) -> None:
     """
     Main function to set up all git configurations.
-    
+
     Args:
         home_dir (Path): Path to user's home directory
         src_dir (Path): Path to source directory
@@ -760,9 +783,9 @@ def setup_git_config(home_dir: Path, src_dir: Path, vcs: list[VersionControl]) -
                     account_path = src_dir / vcs.name / org.name / account.name
                     if account_path.exists():
                         create_account_level_gitconfig(
-                            account_path, 
-                            account.name, 
-                            vcs.name, 
+                            account_path,
+                            account.name,
+                            vcs.name,
                             org.name
                         )
                     else:
@@ -773,8 +796,8 @@ def setup_git_config(home_dir: Path, src_dir: Path, vcs: list[VersionControl]) -
                 account_path = src_dir / vcs.name / account.name
                 if account_path.exists():
                     create_account_level_gitconfig(
-                        account_path, 
-                        account.name, 
+                        account_path,
+                        account.name,
                         vcs.name
                     )
                 else:
@@ -782,7 +805,7 @@ def setup_git_config(home_dir: Path, src_dir: Path, vcs: list[VersionControl]) -
 
     except Exception as e:
         print(f"[ERROR]: Failed to setup git configurations: {str(e)}")
-        
+
 def generate_mock_data() -> list[VersionControl]:
     return [
         VersionControl(
@@ -830,7 +853,7 @@ def run():
     # GENERATE VCS HIERARCHY - INTERACTIVE
     # generated_vcs = generate_vcs_hierarchy()
 
-    # GENERATE VCS HIERARCHY - AUTOMATED 
+    # GENERATE VCS HIERARCHY - AUTOMATED
     generated_vcs = generate_mock_data()
 
     # DEBUG
@@ -838,15 +861,15 @@ def run():
         vcs.debug()
 
     # GENERATE SSH DIRECTORIES - ORG & STANDARD
-    create_ssh_account_directories(ssh_path=SSH_DIR_PATH, vcs=generated_vcs)
+    create_ssh_vcs_directories(ssh_path=SSH_DIR_PATH, vcs=generated_vcs)
 
     # GENERATE DIRECTORIES - ORGANISATIONAL & STANDARD
     create_vcs_directories(src_path=SOURCE_DIR_PATH, vcs=generated_vcs)
-    
-    
+
+
     # GENERATE GIT CONFIG
     setup_git_config(home_dir=HOME_DIR_PATH, src_dir=SOURCE_DIR_PATH, vcs=generated_vcs)
-    
+
     # GENERATE SSH CONFIG
     add_ssh_config(vcs_list=generated_vcs)
 
