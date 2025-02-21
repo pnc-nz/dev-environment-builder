@@ -484,24 +484,74 @@ def add_ssh_config(username: str, vcs: str, operating_system: str):
 
     print(f"Added SSH config for {username}.{vcs}")
 
-def create_account_level_gitconfig(account_path: Path, account_name: str, vcs_name: str, org_name: str = None) -> None:
+def check_gitconfig_entry_exists(config_content: str, vcs_name: str, username: str, org_name: str = None) -> bool:
     """
-    Creates or updates account-level .gitconfig files using standardized templates.
+    Checks if a gitconfig entry already exists.
     
     Args:
-        account_path (Path): Path to the account directory
-        account_name (str): Name of the account
+        config_content (str): Existing gitconfig content
         vcs_name (str): Name of the version control system
-        org_name (str, optional): Name of the organization if applicable
+        username (str): Account username
+        org_name (str, optional): Organization name if applicable
+    
+    Returns:
+        bool: True if entry exists, False otherwise
     """
+    # Create pattern to match based on account type
+    if org_name:
+        pattern = f"gitdir:~/{SOURCE_DIR_NAME}/{vcs_name}/{org_name}/{username}/"
+    else:
+        pattern = f"gitdir:~/{SOURCE_DIR_NAME}/{vcs_name}/{username}/"
+    
+    return pattern in config_content
+
+def check_account_gitconfig_entry_exists(gitconfig_content: str, vcs_name: str, username: str, org_name: str = None) -> bool:
+    """
+    Checks if an account-level gitconfig entry already exists.
+    
+    Args:
+        gitconfig_content (str): Existing gitconfig content
+        vcs_name (str): Name of the version control system
+        username (str): Account username
+        org_name (str, optional): Organization name if applicable
+    
+    Returns:
+        bool: True if entry exists, False otherwise
+    """
+    # Check for user section and matching configuration
+    if org_name:
+        pattern = f"email = {username}@{org_name}.com"
+    elif "github" in vcs_name:
+        pattern = f"name = {username}"
+    else:
+        pattern = f"name = {username}"
+    
+    return pattern in gitconfig_content
+
+def create_account_level_gitconfig(account_path: Path, account_name: str, vcs_name: str, org_name: str = None) -> None:
+    """Creates or updates account-level .gitconfig files using standardized templates."""
     gitconfig_path = account_path / GC_FILE_NAME
     template_path = Path(TEMPLATES_DIR_NAME) / GC_TEMPLATES_DIR_NAME / GC_ACCOUNT_DIR_NAME / vcs_name / GC_USER_FILE_NAME
 
     try:
         # Check if template exists
         if not template_path.exists():
-            print(f"[WARNING]: No account template found for {vcs_name}")
+            print(f"[WARNING]: No account template found for [{vcs_name}]")
             return
+
+        # Check if gitconfig already exists and read content
+        existing_content = ""
+        if gitconfig_path.exists():
+            with open(gitconfig_path, 'r') as f:
+                existing_content = f.read()
+            
+            # Check for duplicate entry
+            if check_account_gitconfig_entry_exists(existing_content, vcs_name, account_name, org_name):
+                print(f"[INFO]: Account-level gitconfig entry already exists for [{account_name}] at [{gitconfig_path}]")
+                return
+            print(f"[INFO]: Updating existing gitconfig at [{gitconfig_path}]")
+        else:
+            print(f"[INFO]: Creating new gitconfig at [{gitconfig_path}]")
 
         # Read template content
         with open(template_path, 'r') as f:
@@ -518,41 +568,45 @@ def create_account_level_gitconfig(account_path: Path, account_name: str, vcs_na
             template_vars["GITHUB_ID"] = get_github_id(account_name)
         elif "azure" in vcs_name and org_name:
             template_vars["ORGANISATION"] = org_name
-        elif "gitlab" in vcs_name and org_name:
+        elif any(vcs in vcs_name for vcs in ["gitlab", "sourceforge", "bitbucket"]):
             print(f"[WARNING]: Unsupported VCS [{vcs_name}]")
-        elif "sourceforge.net" in vcs_name and org_name:
-            print(f"[WARNING]: Unsupported VCS [{vcs_name}]")
-        elif "bitbucket.org" in vcs_name and org_name:
-            print(f"[WARNING]: Unsupported VCS [{vcs_name}]")
-
+            return
 
         # Format template with variables
-        gitconfig_content = template_content.format(**template_vars)
+        new_config_content = template_content.format(**template_vars)
+
+        # If there's existing content, append new content
+        final_content = existing_content + "\n\n" + new_config_content if existing_content else new_config_content
 
         # Write the gitconfig file
         with open(gitconfig_path, 'w') as f:
-            f.write(gitconfig_content)
+            f.write(final_content)
 
-        print(f"[INFO]: Created account-level .gitconfig at {gitconfig_path}")
+        print(f"[INFO]: {'Updated' if existing_content else 'Created'} account-level gitconfig at [{gitconfig_path}]")
 
     except Exception as e:
-        print(f"[ERROR]: Failed to create account-level .gitconfig: {str(e)}")
+        print(f"[ERROR]: Failed to create/update account-level gitconfig: {str(e)}")
 
 def create_top_level_gitconfig(home_dir: Path, vcs_list: list[VersionControl]) -> None:
-    """
-    Creates or updates the top-level .gitconfig file using standardized templates.
-    
-    Args:
-        home_dir (Path): Path to user's home directory
-        vcs_list (list[VersionControl]): List of configured VCS systems
-    """
+    """Creates or updates the top-level .gitconfig file using standardized templates."""
     gitconfig_path = home_dir / GC_FILE_NAME
     template_dir = Path(TEMPLATES_DIR_NAME) / GC_TEMPLATES_DIR_NAME / GC_TOP_DIR_NAME
 
     try:
-        # Start with default configuration
-        with open(template_dir / GC_DEFAULT_FILE_NAME, 'r') as f:
-            config_content = f.read() + "\n\n"
+        # Read existing config if it exists
+        existing_content = ""
+        if gitconfig_path.exists():
+            with open(gitconfig_path, 'r') as f:
+                existing_content = f.read()
+
+        # Start with default configuration if file doesn't exist
+        config_content = existing_content if existing_content else ""
+        if not config_content:
+            with open(template_dir / GC_DEFAULT_FILE_NAME, 'r') as f:
+                config_content = f.read() + "\n\n"
+
+        # Track if any new entries were added
+        new_entries_added = False
 
         # Process each VCS system
         for vcs in vcs_list:
@@ -567,12 +621,17 @@ def create_top_level_gitconfig(home_dir: Path, vcs_list: list[VersionControl]) -
 
                     for org in vcs.organisations:
                         for account in org.accounts:
-                            config_content += org_template.format(
-                                SRC_DIR=SOURCE_DIR_NAME,
-                                VCS=vcs.name,
-                                ORGANISATION=org.name,
-                                USERNAME=account.name
-                            ) + "\n\n"
+                            if not check_gitconfig_entry_exists(config_content, vcs.name, account.name, org.name):
+                                config_content += org_template.format(
+                                    SRC_DIR=SOURCE_DIR_NAME,
+                                    VCS=vcs.name,
+                                    ORGANISATION=org.name,
+                                    USERNAME=account.name
+                                ) + "\n\n"
+                                new_entries_added = True
+                                print(f"[INFO]: Added organization config for [{account.name}] in [{org.name}] at [{vcs.name}]")
+                            else:
+                                print(f"[INFO]: Config already exists for [{account.name}] in [{org.name}] at [{vcs.name}]")
 
             # Handle standard accounts
             if vcs.accounts:
@@ -582,24 +641,28 @@ def create_top_level_gitconfig(home_dir: Path, vcs_list: list[VersionControl]) -
                         std_template = f.read()
 
                     for account in vcs.accounts:
-                        config_content += std_template.format(
-                            SRC_DIR=SOURCE_DIR_NAME,
-                            VCS=vcs.name,
-                            USERNAME=account.name
-                        ) + "\n\n"
+                        if not check_gitconfig_entry_exists(config_content, vcs.name, account.name):
+                            config_content += std_template.format(
+                                SRC_DIR=SOURCE_DIR_NAME,
+                                VCS=vcs.name,
+                                USERNAME=account.name
+                            ) + "\n\n"
+                            new_entries_added = True
+                            print(f"[INFO]: Added standard config for [{account.name}] at [{vcs.name}]")
+                        else:
+                            print(f"[INFO]: Config already exists for [{account.name}] at [{vcs.name}]")
 
-        # Write the complete config file
-        with open(gitconfig_path, 'w') as f:
-            f.write(config_content)
-
-        # Set appropriate permissions
-        gitconfig_path.chmod(0o644)
-
-        print(f"[INFO]: Created top-level .gitconfig at {gitconfig_path}")
+        # Only write if new entries were added
+        if new_entries_added:
+            with open(gitconfig_path, 'w') as f:
+                f.write(config_content)
+            gitconfig_path.chmod(0o644)
+            print(f"[INFO]: Updated top-level gitconfig at [{gitconfig_path}]")
+        else:
+            print("[INFO]: No new entries to add to gitconfig")
 
     except Exception as e:
-        print(f"[ERROR]: Failed to create top-level .gitconfig: {str(e)}")
-
+        print(f"[ERROR]: Failed to create/update top-level gitconfig: {str(e)}")
 def setup_git_config(home_dir: Path, src_dir: Path, vcs_list: list[VersionControl]) -> None:
     """
     Main function to set up all git configurations.
@@ -619,25 +682,31 @@ def setup_git_config(home_dir: Path, src_dir: Path, vcs_list: list[VersionContro
             for org in vcs.organisations:
                 for account in org.accounts:
                     account_path = src_dir / vcs.name / org.name / account.name
-                    create_account_level_gitconfig(
-                        account_path, 
-                        account.name, 
-                        vcs.name, 
-                        org.name
-                    )
+                    if account_path.exists():
+                        create_account_level_gitconfig(
+                            account_path, 
+                            account.name, 
+                            vcs.name, 
+                            org.name
+                        )
+                    else:
+                        print(f"[WARNING]: Account directory not found at [{account_path}]")
 
             # Handle standard accounts
             for account in vcs.accounts:
                 account_path = src_dir / vcs.name / account.name
-                create_account_level_gitconfig(
-                    account_path, 
-                    account.name, 
-                    vcs.name
-                )
+                if account_path.exists():
+                    create_account_level_gitconfig(
+                        account_path, 
+                        account.name, 
+                        vcs.name
+                    )
+                else:
+                    print(f"[WARNING]: Account directory not found at [{account_path}]")
 
     except Exception as e:
         print(f"[ERROR]: Failed to setup git configurations: {str(e)}")
-
+        
 def generate_mock_data() -> list[VersionControl]:
     return [
         VersionControl(
