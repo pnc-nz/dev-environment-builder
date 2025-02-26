@@ -1,9 +1,11 @@
+import json
 import os
 import platform
 import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 OS = platform.system().lower()
@@ -34,11 +36,11 @@ SSH_CONFIG_PATH = SSH_DIR_PATH / SSH_CONFIG_FILE_NAME
 
 # Version Controls
 VERSION_CONTROL_SYSTEMS = [
-    "bitbucket.org",
+    # "bitbucket.org",
     "dev.azure.com",
     "github.com",
-    "gitlab.com",
-    "sourceforge.net",
+    # "gitlab.com",
+    # "sourceforge.net",
 ]
 
 @dataclass
@@ -86,18 +88,37 @@ class VersionControl:
 
 
 
+
 def get_github_id(username: str) -> str:
-    id = ""
+    """Fetches the GitHub user id for the given username.
+
+    Returns:
+        The GitHub user id as a string if found; otherwise, an empty string.
+    """
+    user_id = ""
     gh_url = f"https://api.github.com/users/{username}"
     try:
-        with urlopen(f"{gh_url}") as r:
-            import json
-
-            content = json.load(r)
-            id = content["idx"]
-    except KeyError:
-        print(f"[INFO]: Could not resolve user.id at {gh_url}")
-    return id
+        with urlopen(gh_url) as response:
+            # Check for HTTP status; note that urlopen raises HTTPError for non-200 codes,
+            # but this is extra caution if you later change the logic.
+            if response.status != 200:
+                print(f"[ERROR]: Received HTTP status {response.status} for {gh_url}")
+                return user_id
+            data = json.load(response)
+            # Use .get() to avoid KeyError if "id" is missing
+            if "id" in data:
+                user_id = str(data["id"])
+            else:
+                print(f"[INFO]: 'id' not found in response for {gh_url}")
+    except HTTPError as e:
+        print(f"[ERROR]: HTTP error {e.code} occurred while fetching {gh_url}: {e.reason}")
+    except URLError as e:
+        print(f"[ERROR]: Failed to reach {gh_url}: {e.reason}")
+    except json.JSONDecodeError:
+        print(f"[ERROR]: Failed to parse JSON response from {gh_url}")
+    except Exception as e:
+        print(f"[ERROR]: An unexpected error occurred: {e}")
+    return user_id
 
 
 
@@ -438,20 +459,9 @@ def generate_ssh_keys(ssh_account_path: Path, account: str) -> None:
             key_path.unlink(missing_ok=True)
             pub_key_path.unlink(missing_ok=True)
 
-        # TODO: fix `-f` not working as intended
-        # Generate new SSH key pair
-        # command = [
-        #     "ssh-keygen",
-        #     "-t", "rsa",  # type
-        #     "-b", "4096",  # bits
-        #     "-f", f'"{str(key_path)}"',  # file path (expanded)
-        #     "-C", account,  # comment
-        #     "-q",  # quiet
-        #     "-N", ""  # Empty passphrase
-        # ]
-        command = f'ssh-keygen -t rsa -b 4096 -f "{key_path}" -C "{account}" -q -N ""'
-        print(f'[DEBUG]: Generated command: {" ".join(command)}')
 
+        command = f'ssh-keygen -t rsa -b 4096 -f "{key_path}" -C "{account}" -q -N ""'
+        print(f'[DEBUG]: Generated command: {command}')
         subprocess.run(command, shell=True, check=True, text=True)
 
         # Set correct permissions
@@ -838,7 +848,7 @@ def generate_mock_data() -> list[VersionControl]:
 
 def run():
 
-    DEBUG_TEST_MODE = True
+    DEBUG_TEST_MODE = False
     if not DEBUG_TEST_MODE:
         src_path = ''
         ssh_dir_path = ''
@@ -859,10 +869,10 @@ def run():
 
 
     # GENERATE VCS HIERARCHY - INTERACTIVE
-    # generated_vcs = generate_vcs_hierarchy()
+    generated_vcs = generate_vcs_hierarchy()
 
     # GENERATE VCS HIERARCHY - AUTOMATED
-    generated_vcs = generate_mock_data()
+    # generated_vcs = generate_mock_data()
 
     # DEBUG
     for vcs in generated_vcs:
