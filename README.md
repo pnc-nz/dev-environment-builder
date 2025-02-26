@@ -31,10 +31,10 @@ Host *
 ```
 Further reading [here.](https://stackoverflow.com/questions/47455300/ssh-config-bad-configuration-option-usekeychain-on-mac-os-sierra-10-12-6)
 
-2. Update functions that generate/update `.ssh/config` entries to have specific handling for `dev.azure.com`:
+2. Update functions that generate/update `.gitconfig` entries to have specific handling for `dev.azure.com`:
 ```bash
 BEFORE
-- git@ssh.dev.azure.com:lodlaw/
+- git@ssh.dev.azure.com:contoso/
 
 AFTER
 - git@ssh.dev.azure.com:v3/contoso/
