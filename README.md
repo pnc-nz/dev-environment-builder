@@ -18,6 +18,57 @@ A Python-based CLI tool that automates the setup of development environments acr
 - GitLab
 - SourceForge
 
+
+
+## Outstanding / TO-DO
+
+`profile_setup.py`
+1. Update `create_ssh_config_file` to check for a default entry at the top, example of a valid default is:
+```bash
+Host *
+  IdentitiesOnly yes
+  IgnoreUnknown UseKeychain
+```
+Further reading [here.](https://stackoverflow.com/questions/47455300/ssh-config-bad-configuration-option-usekeychain-on-mac-os-sierra-10-12-6)
+
+2. Update functions that generate/update `.ssh/config` entries to have specific handling for `dev.azure.com`:
+```bash
+BEFORE
+- git@ssh.dev.azure.com:lodlaw/
+
+AFTER
+- git@ssh.dev.azure.com:v3/contoso/
+```
+
+`.ssh/config`
+1. Fix `Host` key being generated incorrectly, it needs to include the
+{Organisation} if applicable - 
+```bash
+BEFORE
+- john-doe.dev.azure.com
+
+AFTER
+- contoso.john-doe.dev.azure.com
+```
+
+2. Fix `dev.azure.com` omitting `ssh.` from the `HostName` key - e.g:
+```bash
+BEFORE
+- Hostname dev.azure.com
+
+AFTER
+- Hostname ssh.dev.azure.com
+```
+
+
+`~/.gitconfig`
+1. Update template so that azure entries get the `:v3` appended to their URL
+   - This applies to both `url` (`:v3`) AND `insteadOf` keys
+2. `url` should ensure it is generated like {org}.{account}.{vcs}
+2. Write tests for `config` entries - e.g duplicate handling
+
+
+
 ## Directory Structure
 
 The tool creates the following directory structure:
